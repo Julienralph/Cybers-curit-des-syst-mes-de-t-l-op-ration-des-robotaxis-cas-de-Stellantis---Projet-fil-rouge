@@ -1,2 +1,2 @@
-# Cybers-curit-des-syst-mes-de-t-l-op-ration-des-robotaxis-cas-de-Stellantis---Projet-fil-rouge
+# Cybersécurité des systèmes de téléopération des robotaxis cas de Stellantis---Projet-fil-rouge
 Dans ce projet en binome,nous avons travaillé sur la cybersécurité des systèmes de téléopération des robotaxis pour le cas de l'entreprise Stellantis où il est question de simuler une flotte de robots taxis,faire de l'nalyse des risques de celui-ci,y simuler des attaques et faire de la réponse à incidents.
