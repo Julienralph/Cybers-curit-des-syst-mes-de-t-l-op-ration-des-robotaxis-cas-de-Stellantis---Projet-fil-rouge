@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ========================================================================
 # DOCKER COMPOSE — Système de Téléopération Robotaxi
 # ========================================================================
@@ -7,7 +5,6 @@ version: '3.8'
 # À lancer : docker compose up --build
 #
 # Concepts :
-# - version: '3.8' → compatibilité Docker Compose v2.x
 # - services: conteneurs à orchestrer
 # - networks: segmentation réseau (Trust Boundaries)
 # - volumes: fichiers partagés (certs TLS, .env)
@@ -50,12 +47,13 @@ services:
       - ./technical/backend/logs:/app/logs  # Logs persistants
     networks:
       - teleop_network
-    depends_on:
-      # Vehicle et operator doivent pouvoir atteindre backend
-      # (mais pas d'ordre strict de démarrage avec depends_on)
-      - vehicle
-      - operator
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     logging:
       driver: "json-file"
       options:
@@ -89,9 +87,10 @@ services:
       - ./technical/certs:/certs:ro  # Certificats client mTLS
     networks:
       - teleop_network
-    depends_on:
-      - backend
     restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
     logging:
       driver: "json-file"
       options:
@@ -116,6 +115,7 @@ services:
     environment:
       - BACKEND_URL=ws://backend:8000
       - OPERATOR_ID=operator_001
+      - OPERATOR_PASSWORD=secret123
       - CLIENT_CERT_PATH=/certs/client.crt
       - CLIENT_KEY_PATH=/certs/client.key
       - CA_CERT_PATH=/certs/ca.crt
@@ -123,9 +123,10 @@ services:
       - ./technical/certs:/certs:ro  # Certificats client mTLS
     networks:
       - teleop_network
-    depends_on:
-      - backend
     restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
     logging:
       driver: "json-file"
       options:

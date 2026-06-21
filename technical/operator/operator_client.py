@@ -17,13 +17,16 @@ import json
 import logging
 import os
 from datetime import datetime
+import aiohttp
 
 # Configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BACKEND_URL = os.getenv("BACKEND_URL", "ws://backend:8000")
+BACKEND_HTTP_URL = BACKEND_URL.replace("ws://", "http://")
 OPERATOR_ID = os.getenv("OPERATOR_ID", "operator_001")
+OPERATOR_PASSWORD = os.getenv("OPERATOR_PASSWORD", "secret123")
 
 # ========================================================================
 # CLASSE PRINCIPAL — OPERATOR CLIENT
@@ -34,13 +37,23 @@ class OperatorClient:
         self.websocket = None
         self.running = False
 
+    async def get_jwt_token(self) -> str:
+        """Appeler POST /auth/login pour obtenir un token JWT."""
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{BACKEND_HTTP_URL}/auth/login",
+                json={"operator_id": OPERATOR_ID, "password": OPERATOR_PASSWORD}
+            ) as response:
+                if response.status != 200:
+                    raise Exception(f"Login échoué : HTTP {response.status}")
+                data = await response.json()
+                logger.info(f"[OPERATOR] Token JWT obtenu ✓")
+                return data["access_token"]
+
     async def connect_to_backend(self):
         """
         Établir la connexion WebSocket avec le backend.
-
-        L'opérateur doit :
-        1. D'abord s'authentifier (HTTP POST /auth/login → JWT)
-        2. Puis ouvrir une WebSocket avec le JWT en header
+        Flux : POST /auth/login → JWT → WebSocket avec ?token=JWT
         """
         import websockets
 
@@ -52,14 +65,10 @@ class OperatorClient:
             try:
                 logger.info(f"[OPERATOR] Connexion au backend ({BACKEND_URL})...")
 
-                # TODO : récupérer un JWT valide via POST /auth/login
-                # jwt_token = await self.get_jwt_token()
+                token = await self.get_jwt_token()
 
-                # Ouvrir la WebSocket
-                # Les paramètres peuvent être un JWT en query string ou en header
                 self.websocket = await websockets.connect(
-                    f"{BACKEND_URL}/ws/operator/{OPERATOR_ID}"
-                    # headers={"Authorization": f"Bearer {jwt_token}"}  # TODO
+                    f"{BACKEND_URL}/ws/operator/{OPERATOR_ID}?token={token}"
                 )
 
                 logger.info(f"[OPERATOR] Connecté au backend ✓")

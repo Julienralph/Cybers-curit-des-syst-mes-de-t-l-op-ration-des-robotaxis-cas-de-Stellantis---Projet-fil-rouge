@@ -15,13 +15,17 @@ Concepts clés :
 - Depends → injection de dépendances (auth, session manager)
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from jose import jwt, JWTError
+from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
 import os
-from datetime import datetime
+from pydantic import BaseModel, ValidationError
+import json
+
 
 # ========================================================================
 # CONFIGURATION
@@ -34,19 +38,105 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change_me_in_prod")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRY_MINUTES = int(os.getenv("JWT_EXPIRY_MINUTES", "15"))
 
+# Credentials hardcodés pour la démo (en prod : base de données)
+OPERATORS_DB = {
+    "operator_001": "secret123",
+}
+
+# ========================================================================
+# FONCTIONS JWT
+# ========================================================================
+
+def create_access_token(operator_id: str) -> str:
+    """Créer un token JWT signé avec expiration."""
+    payload = {
+        "sub": operator_id,
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRY_MINUTES),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def verify_token(token: str) -> str:
+    """Vérifier un token JWT et retourner l'operator_id. Lève JWTError si invalide."""
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    operator_id = payload.get("sub")
+    if not operator_id:
+        raise JWTError("Token sans subject")
+    return operator_id
+
 # ========================================================================
 # STRUCTURES DE DONNÉES (placeholder)
 # ========================================================================
 # En semaine 2, remplacer par les vrais modèles Pydantic
 # Pydantic = validation + serialization de données en Python
 
-class LoginRequest:
-    """Placeholder pour la requête de login"""
-    pass
+class LoginRequest(BaseModel):
+    operator_id: str
+    password: str
 
-class TokenResponse:
-    """Placeholder pour la réponse JWT"""
-    pass
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class GPSCoordinates(BaseModel):
+    lat: float
+    lon: float
+
+
+class TelemetryMessage(BaseModel):
+    type: str
+    vehicle_id: str
+    timestamp: str
+    speed: float
+    steering_angle: float
+    brake_pressure: float
+    throttle: float
+    gps: GPSCoordinates
+    battery: float
+    status: str
+
+
+class CommandMessage(BaseModel):
+    type: str
+    operator_id: str
+    timestamp: str
+    throttle: float = 0.0
+    steering: float = 0.0
+    brake: float = 0.0
+
+class ConnectionManager:
+    def __init__(self):
+        self.vehicles: dict[str, WebSocket] = {}    # vehicle_id → WebSocket
+        self.operators: dict[str, WebSocket] = {}   # operator_id → WebSocket
+
+    async def connect_vehicle(self, vehicle_id: str, ws: WebSocket):
+        self.vehicles[vehicle_id] = ws
+
+    async def connect_operator(self, operator_id: str, ws: WebSocket):
+        self.operators[operator_id] = ws
+
+    def disconnect_vehicle(self, vehicle_id: str):
+        self.vehicles.pop(vehicle_id, None)
+
+    def disconnect_operator(self, operator_id: str):
+        self.operators.pop(operator_id, None)
+
+    async def relay_to_operators(self, data: str):
+        """Envoie la télémétrie du véhicule à tous les opérateurs connectés."""
+        for op_ws in self.operators.values():
+            await op_ws.send_text(data)
+
+    async def relay_to_vehicle(self, vehicle_id: str, data: str):
+        """Envoie une commande d'un opérateur vers un véhicule spécifique."""
+        ws = self.vehicles.get(vehicle_id)
+        if ws:
+            await ws.send_text(data)
+
+manager = ConnectionManager()
 
 # ========================================================================
 # LIFESPAN (startup/shutdown)
@@ -94,32 +184,25 @@ app.add_middleware(
 # ROUTES HTTP — Authentification
 # ========================================================================
 
-@app.post("/auth/login")
+@app.post("/auth/login", response_model=TokenResponse)
 async def login(request: LoginRequest):
     """
     Login — émettre un JWT pour un opérateur.
 
     POST /auth/login
-    {
-      "operator_id": "operator_001",
-      "password": "..."
-    }
-
-    Retourne :
-    {
-      "access_token": "eyJhbGc...",
-      "token_type": "bearer",
-      "expires_in": 900
-    }
-
-    Concepts :
-    - JWT (JSON Web Token) = stateless authentication
-    - Payload JWT = données du token (operator_id, vehicle_id, expiry, etc.)
-    - Signature = preuve que le token vient du backend
+    Body : {"operator_id": "operator_001", "password": "secret123"}
+    Retourne : {"access_token": "eyJ...", "token_type": "bearer", "expires_in": 900}
     """
-    logger.info(f"[AUTH] Tentative login...")
-    # TODO : implémenter l'authentification réelle
-    raise HTTPException(status_code=501, detail="Not implemented")
+    logger.info(f"[AUTH] Tentative login pour {request.operator_id}")
+
+    expected_password = OPERATORS_DB.get(request.operator_id)
+    if not expected_password or expected_password != request.password:
+        logger.warning(f"[AUTH] Échec login pour {request.operator_id}")
+        raise HTTPException(status_code=401, detail="Identifiants invalides")
+
+    token = create_access_token(request.operator_id)
+    logger.info(f"[AUTH] Token émis pour {request.operator_id}")
+    return TokenResponse(access_token=token, expires_in=JWT_EXPIRY_MINUTES * 60)
 
 @app.post("/auth/refresh")
 async def refresh_token():
@@ -155,70 +238,59 @@ async def metrics():
 
 @app.websocket("/ws/vehicle/{vehicle_id}")
 async def websocket_vehicle(websocket: WebSocket, vehicle_id: str):
-    """
-    WebSocket du véhicule.
-
-    Concepts :
-    - WebSocket = connexion bidirectionnelle persistent (vs HTTP request/response)
-    - Le véhicule se connecte et reçoit les commandes du backend
-    - Le véhicule envoie la télémétrie en continu
-
-    Flow :
-    1. Vehicle: ws://backend:8000/ws/vehicle/taxi_42
-    2. Backend: await websocket.accept()
-    3. Vehicle: envoie télémétrie (20 Hz, toutes les 50ms)
-    4. Backend: reçoit + relaye aux opérateurs
-    """
-    logger.info(f"[WS-VEHICLE] Connexion véhicule {vehicle_id}")
-
+    await websocket.accept()
+    await manager.connect_vehicle(vehicle_id, websocket)
+    logger.info(f"[WS-VEHICLE] {vehicle_id} connecté ✓")
     try:
-        await websocket.accept()
-        logger.info(f"[WS-VEHICLE] {vehicle_id} connecté ✓")
-
-        # Boucle de réception des messages
         while True:
-            # Recevoir les données du véhicule
             data = await websocket.receive_text()
-            # TODO : parser les données (JSON)
-            # TODO : valider les données
-            # TODO : relayer aux opérateurs supervisant ce véhicule
-            logger.info(f"[WS-VEHICLE] {vehicle_id}: {data[:50]}...")
-
+            try:
+                telemetry = TelemetryMessage(**json.loads(data))
+                logger.info(f"[WS-VEHICLE] télémétrie {vehicle_id}: speed={telemetry.speed} status={telemetry.status}")
+                await manager.relay_to_operators(data)
+            except (json.JSONDecodeError, ValidationError) as e:
+                logger.warning(f"[WS-VEHICLE] Message invalide ignoré: {e}")
     except WebSocketDisconnect:
         logger.warning(f"[WS-VEHICLE] {vehicle_id} déconnecté")
-        # TODO : nettoyer la session
+        manager.disconnect_vehicle(vehicle_id)
     except Exception as e:
         logger.error(f"[WS-VEHICLE] Erreur: {e}")
+        manager.disconnect_vehicle(vehicle_id)
         await websocket.close(code=1011)
 
 
 @app.websocket("/ws/operator/{operator_id}")
-async def websocket_operator(websocket: WebSocket, operator_id: str):
-    """
-    WebSocket de l'opérateur.
-
-    L'opérateur se connecte, envoie des commandes, et reçoit la télémétrie
-    du véhicule qu'il supervise.
-    """
-    logger.info(f"[WS-OPERATOR] Connexion opérateur {operator_id}")
-
+async def websocket_operator(websocket: WebSocket, operator_id: str, token: str = Query(...)):
     try:
-        await websocket.accept()
-        logger.info(f"[WS-OPERATOR] {operator_id} connecté ✓")
+        verified_id = verify_token(token)
+    except JWTError:
+        await websocket.close(code=1008)  # 1008 = Policy Violation
+        logger.warning(f"[AUTH] Connexion WebSocket refusée pour {operator_id} : token invalide")
+        return
 
+    if verified_id != operator_id:
+        await websocket.close(code=1008)
+        logger.warning(f"[AUTH] Token ne correspond pas à operator_id {operator_id}")
+        return
+
+    await websocket.accept()
+    await manager.connect_operator(operator_id, websocket)
+    logger.info(f"[WS-OPERATOR] {operator_id} connecté ✓")
+    try:
         while True:
-            # Recevoir les commandes de l'opérateur
             data = await websocket.receive_text()
-            # TODO : parser JSON
-            # TODO : vérifier que l'opérateur a le droit de contrôler ce véhicule (RBAC)
-            # TODO : valider la commande (sémantique)
-            # TODO : relayer au véhicule
-            logger.info(f"[WS-OPERATOR] {operator_id}: {data[:50]}...")
-
+            try:
+                command = CommandMessage(**json.loads(data))
+                logger.info(f"[WS-OPERATOR] commande de {operator_id}: throttle={command.throttle} steering={command.steering} brake={command.brake}")
+                await manager.relay_to_vehicle("taxi_42", data)
+            except (json.JSONDecodeError, ValidationError) as e:
+                logger.warning(f"[WS-OPERATOR] Commande invalide ignorée: {e}")
     except WebSocketDisconnect:
         logger.warning(f"[WS-OPERATOR] {operator_id} déconnecté")
+        manager.disconnect_operator(operator_id)
     except Exception as e:
         logger.error(f"[WS-OPERATOR] Erreur: {e}")
+        manager.disconnect_operator(operator_id)
         await websocket.close(code=1011)
 
 # ========================================================================
