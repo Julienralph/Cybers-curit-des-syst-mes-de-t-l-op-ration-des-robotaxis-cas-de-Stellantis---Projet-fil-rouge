@@ -1,0 +1,159 @@
+# ========================================================================
+# DOCKER COMPOSE — Système de Téléopération Robotaxi
+# ========================================================================
+# Orchestre 3 services isolés communicant via réseau (Zero Trust)
+# À lancer : docker compose up --build
+#
+# Concepts :
+# - services: conteneurs à orchestrer
+# - networks: segmentation réseau (Trust Boundaries)
+# - volumes: fichiers partagés (certs TLS, .env)
+# ========================================================================
+
+services:
+
+  # ====================================================================
+  # SERVICE 1 : BACKEND (cœur du système)
+  # ====================================================================
+  # FastAPI WebSocket server
+  # - Routes HTTP : /auth/login, /auth/refresh, /health, /metrics
+  # - Routes WS : /ws/vehicle/{id}, /ws/operator/{id}
+  # - Responsabilités :
+  #   * Authentifier les opérateurs (JWT)
+  #   * Relayer les commandes vers le véhicule
+  #   * Collecter la télémétrie
+  #   * Exposer les métriques Prometheus
+  # ====================================================================
+  backend:
+    build:
+      context: ./technical/backend
+      dockerfile: Dockerfile
+    container_name: backend
+    hostname: backend
+    ports:
+      - "8000:8000"  # FastAPI server (HTTP + WebSocket)
+    environment:
+      - JWT_SECRET=change_me_in_prod_use_32_char_minimum
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRY_MINUTES=15
+      - BACKEND_URL=ws://backend:8000
+      - TLS_CERT_PATH=/certs/server.crt
+      - TLS_KEY_PATH=/certs/server.key
+      - CA_CERT_PATH=/certs/ca.crt
+      - LATENCY_WARN_MS=250
+      - LATENCY_CRITICAL_MS=500
+    volumes:
+      - ./technical/certs:/certs:ro  # Certificats TLS (read-only)
+      - ./technical/backend/logs:/app/logs  # Logs persistants
+    networks:
+      - teleop_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  # ====================================================================
+  # SERVICE 2 : VEHICLE (simulateur véhicule)
+  # ====================================================================
+  # Python async simulator
+  # - Simule l'état du CAN Bus (vitesse, accélération, batterie, etc.)
+  # - Envoie la télémétrie au backend toutes les 50ms (20 Hz)
+  # - Reçoit et applique les commandes du backend
+  # - Implémente le fail-safe si latence > 700ms
+  # ====================================================================
+  vehicle:
+    build:
+      context: ./technical/vehicle
+      dockerfile: Dockerfile
+    container_name: vehicle
+    hostname: vehicle
+    environment:
+      - BACKEND_URL=ws://backend:8000
+      - VEHICLE_ID=taxi_42
+      - CLIENT_CERT_PATH=/certs/client.crt
+      - CLIENT_KEY_PATH=/certs/client.key
+      - CA_CERT_PATH=/certs/ca.crt
+      - LATENCY_FAILSAFE_MS=700
+    volumes:
+      - ./technical/certs:/certs:ro  # Certificats client mTLS
+    networks:
+      - teleop_network
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  # ====================================================================
+  # SERVICE 3 : OPERATOR (simulateur opérateur)
+  # ====================================================================
+  # Python async client
+  # - Simule un opérateur qui se connecte au backend
+  # - Envoie des commandes (vitesse, direction, frein)
+  # - Reçoit la télémétrie et affiche l'état du véhicule
+  # ====================================================================
+  operator:
+    build:
+      context: ./technical/operator
+      dockerfile: Dockerfile
+    container_name: operator
+    hostname: operator
+    environment:
+      - BACKEND_URL=ws://backend:8000
+      - OPERATOR_ID=operator_001
+      - OPERATOR_PASSWORD=secret123
+      - CLIENT_CERT_PATH=/certs/client.crt
+      - CLIENT_KEY_PATH=/certs/client.key
+      - CA_CERT_PATH=/certs/ca.crt
+    volumes:
+      - ./technical/certs:/certs:ro  # Certificats client mTLS
+    networks:
+      - teleop_network
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ========================================================================
+# RÉSEAUX
+# ========================================================================
+# Un seul réseau Docker personnalisé (teleop_network)
+# - Tous les services y sont connectés
+# - Ils se découvrent par nom de conteneur (hostname)
+# - Exemple : vehicle peut faire ws://backend:8000 (résolution DNS interne)
+# ========================================================================
+networks:
+  teleop_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ========================================================================
+# VOLUMES (optionnel ici — définis par service)
+# ========================================================================
+# Les volumes sont définis au niveau service (voir volumes: ci-dessus)
+# Ils peuvent aussi être définis globalement ici pour être nommés/partagés
+# ========================================================================
+# volumes:
+#   backend_logs:
+#   certs_volume:
