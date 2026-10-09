@@ -35,7 +35,7 @@ services:
     environment:
       - JWT_SECRET=change_me_in_prod_use_32_char_minimum
       - JWT_ALGORITHM=HS256
-      - JWT_EXPIRY_MINUTES=15
+      - JWT_EXPIRY_MINUTES=1
       - BACKEND_URL=ws://backend:8000
       - TLS_CERT_PATH=/certs/server.crt
       - TLS_KEY_PATH=/certs/server.key
@@ -49,7 +49,7 @@ services:
       - teleop_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request, ssl; ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE; urllib.request.urlopen('https://localhost:8000/health', context=ctx)"]
       interval: 5s
       timeout: 3s
       retries: 3
@@ -77,7 +77,7 @@ services:
     container_name: vehicle
     hostname: vehicle
     environment:
-      - BACKEND_URL=ws://backend:8000
+      - BACKEND_URL=wss://backend:8000
       - VEHICLE_ID=taxi_42
       - CLIENT_CERT_PATH=/certs/client.crt
       - CLIENT_KEY_PATH=/certs/client.key
@@ -113,7 +113,7 @@ services:
     container_name: operator
     hostname: operator
     environment:
-      - BACKEND_URL=ws://backend:8000
+      - BACKEND_URL=wss://backend:8000
       - OPERATOR_ID=operator_001
       - OPERATOR_PASSWORD=secret123
       - CLIENT_CERT_PATH=/certs/client.crt

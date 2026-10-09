@@ -29,4 +29,4 @@ EXPOSE 8000
 # --host 0.0.0.0 = écoute sur toutes les interfaces (important en Docker)
 # --port 8000 = port exposé
 # --reload = rechargement auto en dev (à retirer en prod)
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--ssl-keyfile", "/certs/server.key", "--ssl-certfile", "/certs/server.crt"]

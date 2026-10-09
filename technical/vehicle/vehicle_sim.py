@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import ssl
 from datetime import datetime
 from dataclasses import dataclass, asdict
 
@@ -79,14 +80,12 @@ class VehicleSimulator:
             try:
                 logger.info(f"[VEHICLE] Connexion au backend ({BACKEND_URL})...")
 
-                # TODO : implémenter mTLS (certificats client)
-                # cert_path = os.getenv("CLIENT_CERT_PATH")
-                # key_path = os.getenv("CLIENT_KEY_PATH")
-                # ca_path = os.getenv("CA_CERT_PATH")
+                ssl_context = ssl.create_default_context()
+                ssl_context.load_verify_locations(os.getenv("CA_CERT_PATH", "/certs/ca.crt"))
 
                 self.websocket = await websockets.connect(
-                    f"{BACKEND_URL}/ws/vehicle/{VEHICLE_ID}"
-                    # ssl_context=... TODO
+                    f"{BACKEND_URL}/ws/vehicle/{VEHICLE_ID}",
+                    ssl=ssl_context
                 )
 
                 logger.info(f"[VEHICLE] Connecté au backend ✓")
@@ -151,8 +150,9 @@ class VehicleSimulator:
 
                 logger.info(f"[VEHICLE] Commande reçue: {message[:100]}...")
 
-                # Mettre à jour timestamp pour fail-safe
+                # Mettre à jour timestamp pour fail-safe + repasser en téleopération
                 self.state.last_cmd_timestamp = datetime.now().timestamp()
+                self.state.status = "teleoperated"
 
             except Exception as e:
                 logger.error(f"[VEHICLE] Erreur receive_commands: {e}")

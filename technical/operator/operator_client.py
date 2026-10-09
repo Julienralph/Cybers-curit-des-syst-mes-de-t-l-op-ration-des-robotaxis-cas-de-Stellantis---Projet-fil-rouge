@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import ssl
 from datetime import datetime
 import aiohttp
 
@@ -23,8 +24,8 @@ import aiohttp
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BACKEND_URL = os.getenv("BACKEND_URL", "ws://backend:8000")
-BACKEND_HTTP_URL = BACKEND_URL.replace("ws://", "http://")
+BACKEND_URL = os.getenv("BACKEND_URL", "wss://backend:8000")
+BACKEND_HTTP_URL = BACKEND_URL.replace("wss://", "https://").replace("ws://", "http://")
 OPERATOR_ID = os.getenv("OPERATOR_ID", "operator_001")
 OPERATOR_PASSWORD = os.getenv("OPERATOR_PASSWORD", "secret123")
 
@@ -37,9 +38,15 @@ class OperatorClient:
         self.websocket = None
         self.running = False
 
+    def _ssl_context(self):
+        ctx = ssl.create_default_context()
+        ctx.load_verify_locations(os.getenv("CA_CERT_PATH", "/certs/ca.crt"))
+        return ctx
+
     async def get_jwt_token(self) -> str:
         """Appeler POST /auth/login pour obtenir un token JWT."""
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(ssl=self._ssl_context())
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(
                 f"{BACKEND_HTTP_URL}/auth/login",
                 json={"operator_id": OPERATOR_ID, "password": OPERATOR_PASSWORD}
@@ -68,7 +75,8 @@ class OperatorClient:
                 token = await self.get_jwt_token()
 
                 self.websocket = await websockets.connect(
-                    f"{BACKEND_URL}/ws/operator/{OPERATOR_ID}?token={token}"
+                    f"{BACKEND_URL}/ws/operator/{OPERATOR_ID}?token={token}",
+                    ssl=self._ssl_context()
                 )
 
                 logger.info(f"[OPERATOR] Connecté au backend ✓")

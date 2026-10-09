@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Teleop Security Dashboard</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0e1a;
+  color: #e0e6f0;
+  font-family: 'Courier New', monospace;
+  min-height: 100vh;
+  padding: 16px;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: #111827;
+  border: 1px solid #1e40af;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.title { font-size: 17px; font-weight: bold; color: #60a5fa; }
+.subtitle { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.conn-indicator { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #f87171; }
+.dot.on { background: #34d399; animation: blink 2s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto auto;
+  gap: 12px;
+}
+.panel {
+  background: #111827;
+  border: 1px solid #1e3a5f;
+  border-radius: 8px;
+  padding: 18px;
+}
+.panel-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: #60a5fa;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1e3a5f;
+}
+
+/* VITESSE */
+.speed-big { font-size: 72px; font-weight: bold; color: #34d399; text-align: center; line-height: 1; }
+.speed-unit { font-size: 14px; color: #6b7280; text-align: center; margin-top: 4px; }
+
+/* STATUT */
+.status-center { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 6px; }
+.badge {
+  padding: 8px 22px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.badge.autonomous  { background: #065f46; color: #34d399; }
+.badge.teleoperated { background: #1e3a5f; color: #60a5fa; }
+.badge.emergency   { background: #7f1d1d; color: #f87171; animation: pulse 0.8s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.vehicle-id { font-size: 12px; color: #6b7280; }
+
+/* BATTERIE */
+.batt-value { font-size: 36px; color: #34d399; margin-bottom: 10px; }
+.bar-track { height: 18px; background: #1f2937; border-radius: 9px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 9px; transition: width 0.4s; }
+.batt-fill { background: linear-gradient(90deg, #059669, #34d399); }
+
+/* GPS */
+.gps-row { margin-bottom: 10px; }
+.gps-label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; }
+.gps-val { font-size: 22px; color: #34d399; margin-top: 2px; }
+
+/* COMMANDES */
+.cmd-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1f2937; }
+.cmd-label { font-size: 11px; color: #9ca3af; width: 65px; flex-shrink: 0; }
+.cmd-track { flex: 1; height: 8px; background: #1f2937; border-radius: 4px; overflow: hidden; }
+.cmd-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.fill-throttle { background: #34d399; }
+.fill-steering { background: #60a5fa; }
+.fill-brake    { background: #f87171; }
+.cmd-val { font-size: 12px; width: 36px; text-align: right; flex-shrink: 0; }
+
+/* SÉCURITÉ */
+.security-panel { grid-column: span 3; }
+.events { height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; padding-right: 4px; }
+.events::-webkit-scrollbar { width: 4px; }
+.events::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 2px; }
+.event {
+  padding: 6px 10px;
+  border-radius: 4px;
+  border-left: 3px solid;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.event.success { border-color: #34d399; background: #064e3b22; color: #34d399; }
+.event.danger  { border-color: #f87171; background: #7f1d1d22; color: #f87171; }
+.event.warning { border-color: #f59e0b; background: #78350f22; color: #f59e0b; }
+.event.info    { border-color: #60a5fa; background: #1e3a5f22; color: #60a5fa; }
+.event-time { color: #6b7280; margin-right: 8px; }
+
+/* CONTRÔLE */
+.ctrl-btn {
+  padding: 14px 8px;
+  background: #0a0e1a;
+  border: 1px solid #1e3a5f;
+  border-radius: 8px;
+  color: #60a5fa;
+  font-size: 20px;
+  font-family: monospace;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+.ctrl-btn span { display:block; font-size:11px; margin-top:4px; }
+.ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.ctrl-btn:not(:disabled):hover { background: #1e3a5f; transform: scale(1.04); }
+.ctrl-btn:not(:disabled):active { transform: scale(0.97); }
+
+/* STATS RÉSEAU */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.stat-card { background: #111827; border: 1px solid #1e3a5f; border-radius: 8px; padding: 14px; text-align: center; }
+.stat-value { font-size: 28px; font-weight: bold; color: #60a5fa; }
+.stat-label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="title">TELEOP SECURITY DASHBOARD</div>
+    <div class="subtitle">Stellantis — Cybersécurité des systèmes de téléopération · Télécom Paris 2025-2026</div>
+  </div>
+  <div class="conn-indicator">
+    <div class="dot" id="dot"></div>
+    <span id="connLabel">Connexion...</span>
+  </div>
+</header>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-value" id="statMessages">0</div>
+    <div class="stat-label">Messages relayés</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="statCommands">0</div>
+    <div class="stat-label">Commandes envoyées</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="statRefused" style="color:#f87171">0</div>
+    <div class="stat-label">Accès refusés</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="statHz" style="color:#34d399">0</div>
+    <div class="stat-label">Hz télémétrie</div>
+  </div>
+</div>
+
+<div class="grid">
+  <!-- Vitesse -->
+  <div class="panel">
+    <div class="panel-title">Vitesse</div>
+    <div class="speed-big" id="speed">0.0</div>
+    <div class="speed-unit">km/h</div>
+  </div>
+
+  <!-- Statut -->
+  <div class="panel">
+    <div class="panel-title">Statut véhicule</div>
+    <div class="status-center">
+      <span class="badge autonomous" id="badge">AUTONOMOUS</span>
+      <span class="vehicle-id" id="vehicleId">taxi_42</span>
+    </div>
+  </div>
+
+  <!-- Batterie -->
+  <div class="panel">
+    <div class="panel-title">Batterie</div>
+    <div class="batt-value" id="battVal">87.0%</div>
+    <div class="bar-track"><div class="bar-fill batt-fill" id="battBar" style="width:87%"></div></div>
+  </div>
+
+  <!-- GPS -->
+  <div class="panel">
+    <div class="panel-title">Position GPS</div>
+    <div class="gps-row">
+      <div class="gps-label">Latitude</div>
+      <div class="gps-val" id="lat">48.8566°N</div>
+    </div>
+    <div class="gps-row">
+      <div class="gps-label">Longitude</div>
+      <div class="gps-val" id="lon">2.3522°E</div>
+    </div>
+  </div>
+
+  <!-- Commandes -->
+  <div class="panel">
+    <div class="panel-title">Dernière commande opérateur</div>
+    <div class="cmd-row">
+      <span class="cmd-label">Throttle</span>
+      <div class="cmd-track"><div class="cmd-fill fill-throttle" id="thrBar" style="width:0%"></div></div>
+      <span class="cmd-val" id="thrVal" style="color:#34d399">0.0</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-label">Steering</span>
+      <div class="cmd-track"><div class="cmd-fill fill-steering" id="stBar" style="width:50%"></div></div>
+      <span class="cmd-val" id="stVal" style="color:#60a5fa">0°</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-label">Brake</span>
+      <div class="cmd-track"><div class="cmd-fill fill-brake" id="brBar" style="width:0%"></div></div>
+      <span class="cmd-val" id="brVal" style="color:#f87171">0.0</span>
+    </div>
+  </div>
+
+  <!-- Placeholder 3e colonne -->
+  <div class="panel">
+    <div class="panel-title">Connexions actives</div>
+    <div style="margin-top:8px">
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1f2937">
+        <span style="font-size:12px;color:#9ca3af">Véhicule</span>
+        <span id="vehStatus" style="font-size:12px;color:#34d399">● taxi_42</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1f2937">
+        <span style="font-size:12px;color:#9ca3af">Opérateur</span>
+        <span id="opStatus" style="font-size:12px;color:#6b7280">○ en attente</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0">
+        <span style="font-size:12px;color:#9ca3af">Dashboard</span>
+        <span style="font-size:12px;color:#34d399">● connecté</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Événements sécurité pleine largeur -->
+  <div class="panel security-panel">
+    <div class="panel-title">Événements de sécurité en temps réel</div>
+    <div class="events" id="eventsLog"></div>
+  </div>
+</div>
+
+<!-- PANNEAU DE CONTRÔLE -->
+<div style="margin-top:12px; background:#111827; border:1px solid #1e3a5f; border-radius:8px; padding:18px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; padding-bottom:10px; border-bottom:1px solid #1e3a5f;">
+    <span style="font-size:10px; text-transform:uppercase; letter-spacing:2px; color:#60a5fa;">Panneau de contrôle — Opérateur dashboard</span>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="dot" id="ctrlDot"></div>
+      <span id="ctrlStatus" style="font-size:12px; color:#6b7280;">Non connecté</span>
+      <button id="ctrlBtn" onclick="toggleControl()" style="padding:6px 16px; background:#1e3a5f; color:#60a5fa; border:1px solid #60a5fa; border-radius:6px; cursor:pointer; font-size:12px; font-family:monospace;">
+        Prendre le contrôle
+      </button>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns: repeat(5,1fr) 1.4fr; gap:10px; align-items:center;">
+    <button class="ctrl-btn" id="btnAccel" onclick="sendCmd(0.7,0,0)" disabled>
+      🚀<br><span>Accélérer</span>
+    </button>
+    <button class="ctrl-btn" id="btnLeft" onclick="sendCmd(0.3,-30,0)" disabled>
+      ⬅️<br><span>Gauche</span>
+    </button>
+    <button class="ctrl-btn" id="btnRight" onclick="sendCmd(0.3,30,0)" disabled>
+      ➡️<br><span>Droite</span>
+    </button>
+    <button class="ctrl-btn" id="btnBrake" onclick="sendCmd(0,0,0.8)" disabled style="border-color:#f59e0b; color:#f59e0b;">
+      🛑<br><span>Freiner</span>
+    </button>
+    <button class="ctrl-btn" id="btnStop" onclick="sendCmd(0,0,1.0)" disabled style="border-color:#f87171; color:#f87171;">
+      ⛔<br><span>Arrêt total</span>
+    </button>
+    <div style="background:#0a0e1a; border:1px solid #1e3a5f; border-radius:8px; padding:10px; font-size:11px; color:#6b7280; line-height:1.6;">
+      <div>Throttle : <span id="ctrlThr" style="color:#34d399;">—</span></div>
+      <div>Steering : <span id="ctrlSt" style="color:#60a5fa;">—</span></div>
+      <div>Brake : <span id="ctrlBr" style="color:#f87171;">—</span></div>
+      <div style="margin-top:4px;">Envois : <span id="ctrlCount" style="color:#e0e6f0;">0</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- MÉTRIQUES PROMETHEUS -->
+<div style="margin-top:12px; background:#111827; border:1px solid #1e3a5f; border-radius:8px; padding:18px;">
+  <div style="font-size:10px; text-transform:uppercase; letter-spacing:2px; color:#60a5fa; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #1e3a5f; display:flex; justify-content:space-between; align-items:center;">
+    <span>Métriques Prometheus — actualisées toutes les 5s</span>
+    <span id="metricsTs" style="color:#6b7280; font-size:10px;"></span>
+  </div>
+  <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;">
+    <div class="stat-card">
+      <div class="stat-value" id="mAuthOk" style="color:#34d399">0</div>
+      <div class="stat-label">Auth réussies</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="mAuthKo" style="color:#f87171">0</div>
+      <div class="stat-label">Auth échouées</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="mRateLimit" style="color:#f59e0b">0</div>
+      <div class="stat-label">Rate limited (429)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="mCmds" style="color:#60a5fa">0</div>
+      <div class="stat-label">Commandes relayées</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="mTelem" style="color:#34d399">0</div>
+      <div class="stat-label">Télémétrie reçue</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="mVeh" style="color:#34d399">0</div>
+      <div class="stat-label">Véhicules connectés</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="mOp" style="color:#60a5fa">0</div>
+      <div class="stat-label">Opérateurs connectés</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="mDanger" style="color:#f87171">0</div>
+      <div class="stat-label">Alertes danger</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let msgCount = 0, cmdCount = 0, refusedCount = 0;
+  let telemetryTimes = [];
+
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${wsProto}//${location.host}/ws/dashboard`);
+
+  ws.onopen = () => {
+    document.getElementById('dot').classList.add('on');
+    document.getElementById('connLabel').textContent = 'Connecté au backend';
+    addEvent('info', '🔌 Dashboard connecté au backend');
+  };
+
+  ws.onclose = () => {
+    document.getElementById('dot').classList.remove('on');
+    document.getElementById('connLabel').textContent = 'Déconnecté';
+    addEvent('danger', '🔌 Connexion dashboard perdue — rechargez la page');
+  };
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'telemetry') handleTelemetry(data);
+    else if (data.type === 'command') handleCommand(data);
+    else if (data.type === 'security_event') handleSecurityEvent(data);
+  };
+
+  function handleTelemetry(d) {
+    msgCount++;
+    document.getElementById('statMessages').textContent = msgCount;
+
+    document.getElementById('speed').textContent = d.speed.toFixed(1);
+    document.getElementById('vehicleId').textContent = d.vehicle_id;
+
+    const batt = d.battery.toFixed(1);
+    document.getElementById('battVal').textContent = batt + '%';
+    document.getElementById('battBar').style.width = batt + '%';
+
+    document.getElementById('lat').textContent = d.gps.lat.toFixed(4) + '°N';
+    document.getElementById('lon').textContent = d.gps.lon.toFixed(4) + '°E';
+
+    const badge = document.getElementById('badge');
+    badge.textContent = d.status.toUpperCase();
+    badge.className = 'badge ' + d.status;
+
+    // Calcul Hz
+    const now = Date.now();
+    telemetryTimes = telemetryTimes.filter(t => now - t < 1000);
+    telemetryTimes.push(now);
+    document.getElementById('statHz').textContent = telemetryTimes.length;
+
+    document.getElementById('vehStatus').textContent = '● ' + d.vehicle_id;
+    document.getElementById('vehStatus').style.color = '#34d399';
+  }
+
+  function handleCommand(d) {
+    cmdCount++;
+    document.getElementById('statCommands').textContent = cmdCount;
+
+    const thr = (d.throttle * 100).toFixed(0);
+    const st  = Math.abs(d.steering / 90 * 100).toFixed(0);
+    const br  = (d.brake * 100).toFixed(0);
+
+    document.getElementById('thrBar').style.width = thr + '%';
+    document.getElementById('thrVal').textContent = d.throttle.toFixed(2);
+    document.getElementById('stBar').style.width = st + '%';
+    document.getElementById('stVal').textContent = d.steering + '°';
+    document.getElementById('brBar').style.width = br + '%';
+    document.getElementById('brVal').textContent = d.brake.toFixed(2);
+
+    document.getElementById('opStatus').textContent = '● ' + d.operator_id;
+    document.getElementById('opStatus').style.color = '#60a5fa';
+  }
+
+  function handleSecurityEvent(d) {
+    if (d.level === 'danger') {
+      refusedCount++;
+      document.getElementById('statRefused').textContent = refusedCount;
+    }
+    addEvent(d.level, d.message);
+  }
+
+  function addEvent(level, msg) {
+    const log = document.getElementById('eventsLog');
+    const time = new Date().toLocaleTimeString('fr-FR');
+    const div = document.createElement('div');
+    div.className = 'event ' + level;
+    div.innerHTML = `<span class="event-time">${time}</span>${msg}`;
+    log.insertBefore(div, log.firstChild);
+    if (log.children.length > 60) log.removeChild(log.lastChild);
+  }
+
+  // ── PANNEAU DE CONTRÔLE ──────────────────────────────────────────
+  let controlWs = null;
+  let heartbeatInterval = null;
+  let lastCmd = { throttle: 0, steering: 0, brake: 0 };
+  let ctrlSendCount = 0;
+
+  async function toggleControl() {
+    if (controlWs && controlWs.readyState === WebSocket.OPEN) {
+      disconnectControl();
+    } else {
+      await connectControl();
+    }
+  }
+
+  async function connectControl() {
+    try {
+      // Étape 1 : récupérer un JWT pour dashboard_operator
+      const res = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operator_id: 'dashboard_operator', password: 'dashboard123' })
+      });
+      if (!res.ok) {
+        addEvent('danger', '❌ Échec login dashboard_operator');
+        return;
+      }
+      const { access_token } = await res.json();
+
+      // Étape 2 : ouvrir la WebSocket de contrôle avec le token
+      controlWs = new WebSocket(`${wsProto}//${location.host}/ws/operator/dashboard_operator?token=${access_token}`);
+
+      controlWs.onopen = () => {
+        setCtrlStatus(true);
+        addEvent('success', '🎮 Contrôle manuel activé (dashboard_operator)');
+        setButtonsEnabled(true);
+        // Envoyer un heartbeat toutes les 400ms pour maintenir le fail-safe désactivé
+        heartbeatInterval = setInterval(() => sendCmd(lastCmd.throttle, lastCmd.steering, lastCmd.brake, true), 400);
+      };
+
+      controlWs.onclose = () => {
+        setCtrlStatus(false);
+        setButtonsEnabled(false);
+        clearInterval(heartbeatInterval);
+        addEvent('warning', '🎮 Contrôle manuel déconnecté');
+      };
+
+    } catch (e) {
+      addEvent('danger', '❌ Erreur connexion contrôle : ' + e.message);
+    }
+  }
+
+  function disconnectControl() {
+    clearInterval(heartbeatInterval);
+    if (controlWs) controlWs.close();
+    controlWs = null;
+    setCtrlStatus(false);
+    setButtonsEnabled(false);
+  }
+
+  function sendCmd(throttle, steering, brake, silent = false) {
+    if (!controlWs || controlWs.readyState !== WebSocket.OPEN) return;
+    lastCmd = { throttle, steering, brake };
+    const cmd = {
+      type: 'command',
+      operator_id: 'dashboard_operator',
+      timestamp: new Date().toISOString(),
+      throttle, steering, brake
+    };
+    controlWs.send(JSON.stringify(cmd));
+    if (!silent) {
+      ctrlSendCount++;
+      document.getElementById('ctrlCount').textContent = ctrlSendCount;
+      document.getElementById('ctrlThr').textContent = throttle.toFixed(2);
+      document.getElementById('ctrlSt').textContent = steering + '°';
+      document.getElementById('ctrlBr').textContent = brake.toFixed(2);
+    }
+  }
+
+  function setCtrlStatus(connected) {
+    const dot = document.getElementById('ctrlDot');
+    const label = document.getElementById('ctrlStatus');
+    const btn = document.getElementById('ctrlBtn');
+    dot.className = 'dot' + (connected ? ' on' : '');
+    label.textContent = connected ? 'Contrôle actif' : 'Non connecté';
+    label.style.color = connected ? '#34d399' : '#6b7280';
+    btn.textContent = connected ? 'Relâcher le contrôle' : 'Prendre le contrôle';
+    btn.style.borderColor = connected ? '#34d399' : '#60a5fa';
+    btn.style.color = connected ? '#34d399' : '#60a5fa';
+  }
+
+  function setButtonsEnabled(enabled) {
+    ['btnAccel','btnLeft','btnRight','btnBrake','btnStop'].forEach(id => {
+      document.getElementById(id).disabled = !enabled;
+    });
+  }
+
+  async function fetchMetrics() {
+    try {
+      const res = await fetch('/metrics/json');
+      if (!res.ok) return;
+      const m = await res.json();
+      document.getElementById('mAuthOk').textContent    = m.auth_success;
+      document.getElementById('mAuthKo').textContent    = m.auth_failure;
+      document.getElementById('mRateLimit').textContent = m.auth_rate_limited;
+      document.getElementById('mCmds').textContent      = m.commands_relayed;
+      document.getElementById('mTelem').textContent     = m.telemetry_received;
+      document.getElementById('mVeh').textContent       = m.ws_vehicles;
+      document.getElementById('mOp').textContent        = m.ws_operators;
+      document.getElementById('mDanger').textContent    = m.sec_danger;
+      document.getElementById('metricsTs').textContent  = new Date().toLocaleTimeString('fr-FR');
+    } catch(e) {}
+  }
+  setInterval(fetchMetrics, 5000);
+  fetchMetrics();
+</script>
+</body>
+</html>
